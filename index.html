@@ -564,176 +564,8 @@ document.getElementById('dmInput').addEventListener('input', function() {
   document.getElementById('charCount').textContent = this.value.length;
 });
 
-// ─── SCORING ENGINE ──────────────────────────────────────────────────────────
-function scoreDM(text, recipient) {
-  const t = text.trim();
-  const words = t.split(/\s+/).filter(Boolean);
-  const wc = words.length;
-  const sentences = t.split(/[.!?]+/).filter(s => s.trim().length > 0);
-
-  // Scoring dimensions (0-100 each)
-  const scores = {};
-
-  // 1. CLARITY (sentence structure, no jargon overload)
-  const avgWordLen = words.reduce((a, w) => a + w.length, 0) / (wc || 1);
-  const jargon = /synergy|leverage|paradigm|disrupt|ecosystem|scalable|bandwidth|circle back|touch base/gi;
-  const jargonHits = (t.match(jargon) || []).length;
-  scores.clarity = Math.max(0, Math.min(100,
-    100 - jargonHits * 15 - (avgWordLen > 7 ? 10 : 0) + (sentences.length <= 5 ? 10 : -5)
-  ));
-
-  // 2. HOOK STRENGTH (first sentence quality)
-  const firstSentence = sentences[0] || '';
-  const hookKeywords = /saw your|noticed|loved|read your|congrats|impressive|your post|your work|your recent/i;
-  const hookGeneric = /hope (this|you)|just (wanted|reaching out)|my name is|i am a|i wanted to reach/i;
-  scores.hook = hookKeywords.test(firstSentence) ? Math.min(100, 70 + Math.random()*20) :
-                hookGeneric.test(firstSentence) ? Math.max(10, 20 + Math.random()*20) :
-                40 + Math.random()*25;
-
-  // 3. PERSONALIZATION
-  const nameTokens = /\[name\]|{name}|\bhi [a-z]+\b|\bhey [a-z]+\b/i;
-  const specificRef = /your (company|startup|post|article|video|product|work|tweet|newsletter)/i;
-  const hasName = nameTokens.test(t);
-  const hasSpecific = specificRef.test(t);
-  scores.personalization = (hasName ? 20 : 0) + (hasSpecific ? 55 : 10) + (Math.random()*15);
-  scores.personalization = Math.min(100, scores.personalization);
-
-  // 4. LENGTH (sweet spot: 40-100 words)
-  if (wc < 15) scores.length = 25;
-  else if (wc < 30) scores.length = 55;
-  else if (wc <= 70) scores.length = 90 + Math.random()*10;
-  else if (wc <= 110) scores.length = 70 + Math.random()*10;
-  else if (wc <= 160) scores.length = 45;
-  else scores.length = Math.max(15, 45 - (wc - 160) * 0.3);
-
-  // 5. CTA / QUESTION
-  const ctaPatterns = /\?|reply|let me know|free|quick call|15 min|coffee chat|schedule|book|calendly|interested/i;
-  const ctas = (t.match(/\?/g) || []).length;
-  scores.cta = ctaPatterns.test(t) ? Math.min(100, 60 + ctas * 15 + Math.random()*15) : 20;
-
-  // 6. SPAMMINESS (inverted — low is bad)
-  const spamWords = /free|guaranteed|limited time|act now|don't miss|exclusive offer|click here|unsubscribe|buy now|discount|promo|100%|!!|🤑|💰/gi;
-  const spamHits = (t.match(spamWords) || []).length;
-  const allCaps = (t.match(/[A-Z]{3,}/g) || []).filter(w => w.length > 2).length;
-  scores.spamminess = Math.max(10, 100 - spamHits * 20 - allCaps * 15);
-
-  // 7. CONFIDENCE TONE
-  const weakWords = /i think|maybe|perhaps|just wondering|sorry to bother|if you have time|whenever you're free|i know you're busy/gi;
-  const strongWords = /we've helped|results|proven|specifically|data shows|already|shipped/gi;
-  const weakHits = (t.match(weakWords) || []).length;
-  const strongHits = (t.match(strongWords) || []).length;
-  scores.confidence = Math.max(20, Math.min(100, 60 - weakHits * 15 + strongHits * 12 + Math.random()*15));
-
-  // ─── RECIPIENT MODIFIER ─────────────────────────────────────────────────
-  const recMod = {
-    founder: { hook: 1.05, personalization: 1.1, confidence: 1.05 },
-    investor: { clarity: 1.1, cta: 0.95, confidence: 1.1 },
-    recruiter: { length: 0.85, cta: 1.1, spamminess: 0.9 },
-    creator: { hook: 1.15, personalization: 1.2, length: 0.9 },
-    executive: { clarity: 1.1, length: 0.85, confidence: 1.1 },
-    developer: { clarity: 1.1, hook: 0.95, spamminess: 1.05 },
-    student: { length: 1.0, cta: 1.05, spamminess: 1.1 },
-    journalist: { hook: 1.1, personalization: 1.1, cta: 1.0 }
-  }[recipient] || {};
-
-  for (const [k, m] of Object.entries(recMod)) {
-    if (scores[k]) scores[k] = Math.min(100, scores[k] * m);
-  }
-
-  // ─── OVERALL RATE ────────────────────────────────────────────────────────
-  const weights = { clarity:0.12, hook:0.22, personalization:0.20, length:0.12, cta:0.15, spamminess:0.10, confidence:0.09 };
-  let raw = 0;
-  for (const [k, w] of Object.entries(weights)) raw += scores[k] * w;
-
-  // Map 0-100 raw to realistic reply rates (2% – 55%)
-  const rate = Math.round(2 + (raw / 100) * 53);
-
-  return { scores, rate };
-}
-
-// ─── GENERATE FEEDBACK ───────────────────────────────────────────────────────
-function generateFeedback(scores, rate, recipient, text) {
-  const strengths = [], weaknesses = [];
-
-  if (scores.hook > 65) strengths.push("Opening line grabs attention immediately");
-  else weaknesses.push("Hook is generic — they'll stop reading after line 1");
-
-  if (scores.personalization > 65) strengths.push("Good specific references show you did your homework");
-  else weaknesses.push("Feels mass-blasted — no indication you know who they are");
-
-  if (scores.clarity > 70) strengths.push("Message is clear and easy to follow");
-  else weaknesses.push("Unclear value prop — what exactly are you offering?");
-
-  if (scores.cta > 65) strengths.push("CTA is specific and low-friction");
-  else weaknesses.push("Missing a clear ask — what do you want them to do?");
-
-  if (scores.confidence > 65) strengths.push("Confident tone without being pushy");
-  else weaknesses.push("Hedging language signals insecurity (\"just,\" \"sorry,\" \"maybe\")");
-
-  if (scores.spamminess > 70) strengths.push("Doesn't trigger spam filters or feel promotional");
-  else weaknesses.push("Contains spam-like patterns that erode trust instantly");
-
-  const wc = text.trim().split(/\s+/).length;
-  if (wc > 120) weaknesses.push(`Too long at ~${wc} words — cut it in half`);
-  else if (wc < 20) weaknesses.push("Too short — doesn't give enough context or reason to reply");
-  else strengths.push(`Good length at ~${wc} words — respects their time`);
-
-  // Ensure balance
-  while (strengths.length < 2) strengths.push("Direct and to-the-point delivery");
-  while (weaknesses.length < 2) weaknesses.push("Could be more personalized to this specific person");
-
-  return { strengths: strengths.slice(0,4), weaknesses: weaknesses.slice(0,4) };
-}
-
-// ─── GENERATE REWRITE ────────────────────────────────────────────────────────
-function generateRewrite(text, recipient, scores) {
-  const recContext = {
-    founder: { title: "your founder journey", pain: "one bottleneck costing you hours each week", cta: "Worth a 10-min call this week?" },
-    investor: { title: "your investment thesis", pain: "a signal most investors are missing right now", cta: "Happy to share the data — quick 15 mins?" },
-    recruiter: { title: "your open roles", pain: "how the best candidates evaluate opportunities", cta: "Would a short async intro make sense?" },
-    creator: { title: "your content", pain: "one lever that's compounding your peers' growth", cta: "Would love to share what I found — reply if curious?" },
-    executive: { title: "your team's priorities", pain: "a workflow that's quietly draining your team's output", cta: "Would 15 minutes be worth it? Happy to go async too." },
-    developer: { title: "your project", pain: "a tool that removed our biggest DX bottleneck", cta: "Happy to share what we built — interested?" },
-    student: { title: "your work", pain: "something that genuinely accelerated my growth", cta: "Would love to connect — open to a quick chat?" },
-    journalist: { title: "your recent coverage", pain: "a story angle I haven't seen covered yet", cta: "Could be worth 10 minutes — want the details?" }
-  }[recipient] || { title: "your work", pain: "something relevant to what you're building", cta: "Worth a quick chat?" };
-
-  // Extract a name if present
-  const nameMatch = text.match(/hey ([a-z]+)|hi ([a-z]+)/i);
-  const name = nameMatch ? (nameMatch[1] || nameMatch[2]) : '[Name]';
-
-  // Detect rough topic from original
-  const topicMatch = text.match(/about (.{10,40})[.,!?]/);
-  const topic = topicMatch ? topicMatch[1].trim() : recContext.title;
-
-  const rewrites = [
-    `Hey ${name},
-
-Came across ${topic} — ${['solid work', 'genuinely impressive', 'really well done', 'caught my eye'][Math.floor(Math.random()*4)]}.
-
-I've been working on something that specifically solves ${recContext.pain}. Thought of you immediately.
-
-${recContext.cta}`,
-
-    `${name} —
-
-Noticed ${topic}. One thing stood out.
-
-We've been quietly solving ${recContext.pain} — with results worth sharing.
-
-Not a pitch. Just think it's relevant. ${recContext.cta}`,
-
-    `Hey ${name},
-
-Quick one — I noticed ${topic} and it reminded me of something we shipped recently.
-
-We tackled ${recContext.pain} and got results I think you'd find interesting.
-
-${recContext.cta}`
-  ];
-
-  return rewrites[Math.floor(Math.random() * rewrites.length)];
-}
+// ─── AI-POWERED ANALYZE (calls /api/analyze) ─────────────────────────────────
+// The old fake scoring engine has been replaced with real Groq AI analysis.
 
 // ─── ANIMATE NUMBER ──────────────────────────────────────────────────────────
 function animateNum(el, target, duration = 1200) {
@@ -749,7 +581,7 @@ function animateNum(el, target, duration = 1200) {
 }
 
 // ─── MAIN ANALYZE ────────────────────────────────────────────────────────────
-function analyze() {
+async function analyze() {
   const text = document.getElementById('dmInput').value.trim();
   if (!text) { shake(document.getElementById('dmInput')); return; }
   if (!selectedRec) { shake(document.querySelector('#recGrid')); return; }
@@ -759,14 +591,43 @@ function analyze() {
   document.getElementById('loadingWrap').classList.add('visible');
   document.getElementById('results').classList.remove('visible');
 
-  setTimeout(() => {
-    const { scores, rate } = scoreDM(text, selectedRec);
-    const { strengths, weaknesses } = generateFeedback(scores, rate, selectedRec, text);
-    const rewrite = generateRewrite(text, selectedRec, scores);
+  // Cycle through loading messages for better UX
+  const loadingMsgs = [
+    'Analyzing your message...',
+    'Checking hook strength...',
+    'Evaluating personalization...',
+    'Assessing CTA clarity...',
+    'Writing a better version...'
+  ];
+  let msgIdx = 0;
+  const loadingEl = document.querySelector('.loading-text');
+  const msgInterval = setInterval(() => {
+    msgIdx = (msgIdx + 1) % loadingMsgs.length;
+    loadingEl.textContent = loadingMsgs[msgIdx];
+  }, 1400);
+
+  try {
+    const response = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dmText: text, recipient: selectedRec })
+    });
+
+    clearInterval(msgInterval);
+    loadingEl.textContent = 'Analyzing your message...';
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.error || `Server error ${response.status}`);
+    }
+
+    const data = await response.json();
+    const { replyRate, scores, strengths, weaknesses, rewrite } = data;
+
     currentRewrite = rewrite;
 
-    renderResults(rate, scores, strengths, weaknesses, rewrite);
-    saveHistory(rate, text, selectedRec);
+    renderResults(replyRate, scores, strengths, weaknesses, rewrite);
+    saveHistory(replyRate, text, selectedRec);
 
     document.getElementById('loadingWrap').classList.remove('visible');
     document.getElementById('analyzeBtn').disabled = false;
@@ -775,17 +636,47 @@ function analyze() {
     setTimeout(() => {
       document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 100);
-  }, 1600 + Math.random()*600);
+
+  } catch (err) {
+    clearInterval(msgInterval);
+    loadingEl.textContent = 'Analyzing your message...';
+    document.getElementById('loadingWrap').classList.remove('visible');
+    document.getElementById('analyzeBtn').disabled = false;
+
+    // Show inline error without breaking the UI
+    const errBanner = document.createElement('div');
+    errBanner.style.cssText = `
+      background: rgba(255,68,68,0.08);
+      border: 1px solid rgba(255,68,68,0.3);
+      border-radius: 8px;
+      color: #ff6b6b;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.78rem;
+      padding: 14px 18px;
+      margin-top: 12px;
+      line-height: 1.5;
+    `;
+    errBanner.textContent = `⚠ Analysis failed: ${err.message}`;
+    const btn = document.getElementById('analyzeBtn');
+    // Remove previous error banners
+    document.querySelectorAll('.err-banner').forEach(e => e.remove());
+    errBanner.classList.add('err-banner');
+    btn.insertAdjacentElement('afterend', errBanner);
+    setTimeout(() => errBanner.remove(), 7000);
+  }
 }
 
 // ─── RENDER ──────────────────────────────────────────────────────────────────
 function renderResults(rate, scores, strengths, weaknesses, rewrite) {
+  // Normalize rate: API returns replyRate, keep backward compat
+  const r = typeof rate === 'number' ? rate : 0;
+
   // Rate card class
   const rateCard = document.getElementById('rateCard');
-  rateCard.className = 'rate-card ' + (rate >= 35 ? 'excellent' : rate >= 22 ? 'good' : rate >= 12 ? 'average' : 'poor');
+  rateCard.className = 'rate-card ' + (r >= 35 ? 'excellent' : r >= 22 ? 'good' : r >= 12 ? 'average' : 'poor');
 
   // Animate number
-  animateNum(document.getElementById('rateNum'), rate);
+  animateNum(document.getElementById('rateNum'), r);
 
   // Verdict
   const verdicts = {
@@ -794,7 +685,7 @@ function renderResults(rate, scores, strengths, weaknesses, rewrite) {
     average: '⚠ Below average — needs work before sending.',
     poor: '✗ Low signal — likely gets ignored or deleted.'
   };
-  const tier = rate >= 35 ? 'excellent' : rate >= 22 ? 'good' : rate >= 12 ? 'average' : 'poor';
+  const tier = r >= 35 ? 'excellent' : r >= 22 ? 'good' : r >= 12 ? 'average' : 'poor';
   document.getElementById('rateVerdict').textContent = verdicts[tier];
 
   // Score bars

@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DidTheyReply — Cold DM Analyzer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --black: #050505;
+    --deep: #0a0a0a;
+    --card: #0f0f0f;
+    --border: #1a1a1a;
+    --border2: #222;
+    --lime: #c8ff00;
+    --lime-dim: #a8d600;
+    --lime-glow: rgba(200,255,0,0.12);
+    --lime-glow2: rgba(200,255,0,0.06);
+    --text: #f0f0f0;
+    --muted: #666;
+    --muted2: #444;
+    --danger: #ff4444;
+    --warn: #ffaa00;
+    --good: #c8ff00;
+    --radius: 14px;
+    --radius-sm: 8px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { font-size: 16px; }
+
+  body {
+    background: var(--black);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+    cursor: default;
+  }
+
+  /* ─── NOISE OVERLAY ─── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+    opacity: 0.025;
+    pointer-events: none;
+  }
+
+  /* ─── BACKGROUND GLOW ─── */
+  .bg-glow {
+    position: fixed; top: -30vh; left: 50%; transform: translateX(-50%);
+    width: 700px; height: 500px;
+    background: radial-gradient(ellipse at center, rgba(200,255,0,0.07) 0%, transparent 70%);
+    pointer-events: none; z-index: 0;
+  }
+
+  .wrap {
+    position: relative; z-index: 1;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 48px 20px 120px;
+  }
+
+  /* ─── HEADER ─── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 60px;
+  }
+  .logo {
+    font-size: 1rem; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--lime);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .logo-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--lime);
+    box-shadow: 0 0 8px var(--lime), 0 0 16px var(--lime);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(0.85); }
+  }
+  .history-btn {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem; letter-spacing: 0.08em;
+    color: var(--muted); background: none; border: 1px solid var(--border2);
+    padding: 7px 14px; border-radius: var(--radius-sm); cursor: pointer;
+    transition: all 0.2s;
+  }
+  .history-btn:hover { color: var(--lime); border-color: var(--lime); }
+
+  /* ─── HERO ─── */
+  .hero { margin-bottom: 52px; }
+  .hero h1 {
+    font-size: clamp(2.4rem, 6vw, 3.8rem);
+    font-weight: 800; line-height: 1.05;
+    letter-spacing: -0.02em;
+  }
+  .hero h1 span { color: var(--lime); }
+  .hero p {
+    margin-top: 14px;
+    color: var(--muted); font-size: 0.95rem; line-height: 1.6;
+    max-width: 480px;
+    font-family: 'DM Mono', monospace; font-weight: 300;
+  }
+
+  /* ─── CARD ─── */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px;
+    margin-bottom: 16px;
+    transition: border-color 0.3s;
+  }
+  .card:focus-within { border-color: var(--border2); }
+
+  .label {
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--muted);
+    margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+  }
+  .label-num {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--border2); color: var(--muted2);
+    font-size: 0.65rem; display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+
+  /* ─── RECIPIENT GRID ─── */
+  .recipient-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px;
+  }
+  .rec-btn {
+    background: var(--deep);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    color: var(--muted);
+    font-family: 'Syne', sans-serif;
+    font-size: 0.8rem; font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s;
+    display: flex; align-items: center; gap: 8px;
+    white-space: nowrap;
+  }
+  .rec-btn .icon { font-size: 1rem; }
+  .rec-btn:hover { border-color: var(--muted2); color: var(--text); }
+  .rec-btn.active {
+    background: var(--lime-glow);
+    border-color: var(--lime);
+    color: var(--lime);
+  }
+
+  /* ─── TEXTAREA ─── */
+  textarea {
+    width: 100%; min-height: 180px;
+    background: var(--deep);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.85rem; line-height: 1.7;
+    padding: 16px;
+    resize: vertical;
+    outline: none;
+    transition: border-color 0.2s;
+    caret-color: var(--lime);
+  }
+  textarea::placeholder { color: var(--muted2); }
+  textarea:focus { border-color: var(--muted); }
+
+  .char-count {
+    text-align: right; margin-top: 8px;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem; color: var(--muted2);
+  }
+
+  /* ─── ANALYZE BUTTON ─── */
+  .analyze-btn {
+    width: 100%;
+    background: var(--lime);
+    border: none; border-radius: var(--radius);
+    color: #050505;
+    font-family: 'Syne', sans-serif;
+    font-size: 0.95rem; font-weight: 800;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 18px;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative; overflow: hidden;
+    box-shadow: 0 0 30px rgba(200,255,0,0.2);
+    margin-top: 8px;
+  }
+  .analyze-btn::before {
+    content: '';
+    position: absolute; top: 0; left: -100%;
+    width: 100%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+    transition: left 0.4s;
+  }
+  .analyze-btn:hover::before { left: 100%; }
+  .analyze-btn:hover { background: #d4ff1a; box-shadow: 0 0 50px rgba(200,255,0,0.35); transform: translateY(-1px); }
+  .analyze-btn:active { transform: translateY(0); }
+  .analyze-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+  /* ─── LOADING ─── */
+  .loading-wrap {
+    display: none; flex-direction: column; align-items: center;
+    justify-content: center; padding: 60px 20px; gap: 20px;
+  }
+  .loading-wrap.visible { display: flex; }
+  .loader {
+    width: 48px; height: 48px;
+    border: 2px solid var(--border2);
+    border-top-color: var(--lime);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.78rem; color: var(--muted);
+    letter-spacing: 0.1em;
+    animation: blink 1.4s ease-in-out infinite;
+  }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  /* ─── RESULTS ─── */
+  #results { display: none; animation: fadeUp 0.5s ease forwards; }
+  #results.visible { display: block; }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ─── RATE DISPLAY ─── */
+  .rate-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 36px 28px;
+    margin-bottom: 16px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 24px; flex-wrap: wrap;
+  }
+  .rate-card.excellent { border-color: rgba(200,255,0,0.3); box-shadow: 0 0 40px rgba(200,255,0,0.06); }
+  .rate-card.good { border-color: rgba(200,255,0,0.2); }
+  .rate-card.average { border-color: rgba(255,170,0,0.25); }
+  .rate-card.poor { border-color: rgba(255,68,68,0.25); }
+
+  .rate-main { flex: 1; min-width: 200px; }
+  .rate-label {
+    font-size: 0.65rem; font-weight: 700; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 8px;
+  }
+  .rate-number {
+    font-size: clamp(3.5rem, 10vw, 5.5rem);
+    font-weight: 800; line-height: 1; letter-spacing: -0.03em;
+    color: var(--lime);
+    text-shadow: 0 0 30px rgba(200,255,0,0.4);
+  }
+  .rate-verdict {
+    margin-top: 8px;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.78rem; color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+
+  /* ─── SCORE BAR ─── */
+  .score-bars { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 10px; }
+  .score-row { display: flex; flex-direction: column; gap: 4px; }
+  .score-row-top { display: flex; justify-content: space-between; align-items: center; }
+  .score-name {
+    font-size: 0.68rem; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .score-val {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem; color: var(--muted);
+  }
+  .bar-track {
+    height: 3px; background: var(--border2); border-radius: 2px; overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%; border-radius: 2px;
+    background: var(--lime);
+    width: 0; transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .bar-fill.warn { background: var(--warn); }
+  .bar-fill.danger { background: var(--danger); }
+
+  /* ─── STRENGTHS / WEAKNESSES ─── */
+  .sw-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+    margin-bottom: 16px;
+  }
+  @media (max-width: 560px) { .sw-grid { grid-template-columns: 1fr; } }
+
+  .sw-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px;
+  }
+  .sw-title {
+    font-size: 0.65rem; font-weight: 700; letter-spacing: 0.14em;
+    text-transform: uppercase; margin-bottom: 14px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .sw-title.green { color: #5ddf5d; }
+  .sw-title.red   { color: #ff6b6b; }
+  .sw-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .sw-dot.green { background: #5ddf5d; box-shadow: 0 0 6px #5ddf5d; }
+  .sw-dot.red   { background: #ff6b6b; box-shadow: 0 0 6px #ff6b6b; }
+
+  .sw-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  .sw-list li {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.78rem; line-height: 1.5; color: #aaa;
+    padding-left: 14px; position: relative;
+  }
+  .sw-list li::before {
+    content: '—';
+    position: absolute; left: 0; color: var(--muted2);
+    font-size: 0.7rem;
+  }
+
+  /* ─── REWRITE ─── */
+  .rewrite-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px;
+    margin-bottom: 16px;
+    position: relative;
+  }
+  .rewrite-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .copy-btn {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase;
+    background: var(--lime-glow2); border: 1px solid rgba(200,255,0,0.2);
+    color: var(--lime); border-radius: var(--radius-sm);
+    padding: 7px 14px; cursor: pointer;
+    transition: all 0.2s; display: flex; align-items: center; gap: 6px;
+  }
+  .copy-btn:hover { background: var(--lime-glow); border-color: var(--lime); }
+  .copy-btn.copied { color: #5ddf5d; border-color: #5ddf5d; background: rgba(93,223,93,0.08); }
+
+  .rewrite-text {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.83rem; line-height: 1.75; color: #c8c8c8;
+    white-space: pre-wrap;
+    background: var(--deep);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 18px;
+  }
+
+  /* ─── HISTORY ─── */
+  #history-panel {
+    display: none;
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(0,0,0,0.85); backdrop-filter: blur(8px);
+    padding: 40px 20px;
+    overflow-y: auto;
+  }
+  #history-panel.visible { display: block; }
+  .history-inner {
+    max-width: 640px; margin: 0 auto;
+    background: var(--card); border: 1px solid var(--border2);
+    border-radius: var(--radius); padding: 28px;
+  }
+  .history-head {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;
+  }
+  .history-head h2 { font-size: 1.1rem; font-weight: 700; }
+  .close-btn {
+    background: none; border: 1px solid var(--border2); color: var(--muted);
+    font-family: 'DM Mono', monospace; font-size: 0.8rem;
+    padding: 6px 12px; border-radius: var(--radius-sm); cursor: pointer;
+    transition: all 0.2s;
+  }
+  .close-btn:hover { border-color: var(--danger); color: var(--danger); }
+
+  .history-empty {
+    text-align: center; color: var(--muted2);
+    font-family: 'DM Mono', monospace; font-size: 0.8rem; padding: 40px 0;
+  }
+  .history-item {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 16px; margin-bottom: 10px;
+    cursor: pointer; transition: border-color 0.2s;
+  }
+  .history-item:hover { border-color: var(--lime); }
+  .history-item-top {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;
+  }
+  .history-rate {
+    font-size: 1.1rem; font-weight: 800; color: var(--lime);
+  }
+  .history-ts {
+    font-family: 'DM Mono', monospace; font-size: 0.68rem; color: var(--muted2);
+  }
+  .history-snippet {
+    font-family: 'DM Mono', monospace; font-size: 0.73rem; color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* ─── FOOTER ─── */
+  footer {
+    text-align: center; margin-top: 60px;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem; color: var(--muted2);
+    letter-spacing: 0.08em;
+  }
+
+  /* ─── TRANSITIONS ─── */
+  .fade-in { animation: fadeUp 0.4s ease forwards; }
+
+  /* ─── SCROLLBAR ─── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--black); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted2); }
+
+  /* ─── DIVIDER ─── */
+  .divider {
+    height: 1px; background: var(--border); margin: 4px 0 20px;
+  }
+</style>
+</head>
+<body>
+
+<div class="bg-glow"></div>
+
+<div class="wrap">
+
+  <!-- HEADER -->
+  <header>
+    <div class="logo">
+      <span class="logo-dot"></span>
+      DidTheyReply
+    </div>
+    <button class="history-btn" onclick="openHistory()">History ↑</button>
+  </header>
+
+  <!-- HERO -->
+  <div class="hero fade-in">
+    <h1>Will they<br><span>actually reply?</span></h1>
+    <p>Paste your cold DM. Get a reply rate prediction, brutal feedback, and a rewritten version that converts.</p>
+  </div>
+
+  <!-- STEP 1: WHO ARE YOU DMing -->
+  <div class="card fade-in">
+    <div class="label"><span class="label-num">1</span> Who are you cold DMing?</div>
+    <div class="recipient-grid" id="recGrid">
+      <button class="rec-btn" data-val="founder" onclick="selectRec(this)"><span class="icon">🚀</span>Founder</button>
+      <button class="rec-btn" data-val="investor" onclick="selectRec(this)"><span class="icon">💰</span>Investor</button>
+      <button class="rec-btn" data-val="recruiter" onclick="selectRec(this)"><span class="icon">🎯</span>Recruiter</button>
+      <button class="rec-btn" data-val="creator" onclick="selectRec(this)"><span class="icon">✨</span>Creator</button>
+      <button class="rec-btn" data-val="executive" onclick="selectRec(this)"><span class="icon">🏢</span>Executive</button>
+      <button class="rec-btn" data-val="developer" onclick="selectRec(this)"><span class="icon">💻</span>Developer</button>
+      <button class="rec-btn" data-val="student" onclick="selectRec(this)"><span class="icon">📚</span>Student</button>
+      <button class="rec-btn" data-val="journalist" onclick="selectRec(this)"><span class="icon">📰</span>Journalist</button>
+    </div>
+  </div>
+
+  <!-- STEP 2: YOUR DM -->
+  <div class="card fade-in">
+    <div class="label"><span class="label-num">2</span> Paste your cold DM</div>
+    <textarea id="dmInput" placeholder="Hey [Name], I saw your recent post about scaling your startup — really resonated with me. I'm building something that could save your team 10 hrs/week on X. Would love 15 mins to show you. Worth a quick chat?"></textarea>
+    <div class="char-count"><span id="charCount">0</span> chars</div>
+  </div>
+
+  <!-- ANALYZE BUTTON -->
+  <button class="analyze-btn" id="analyzeBtn" onclick="analyze()">
+    Analyze My DM →
+  </button>
+
+  <!-- LOADING -->
+  <div class="loading-wrap" id="loadingWrap">
+    <div class="loader"></div>
+    <div class="loading-text">Analyzing your message...</div>
+  </div>
+
+  <!-- RESULTS -->
+  <div id="results">
+
+    <!-- RATE CARD -->
+    <div class="rate-card" id="rateCard">
+      <div class="rate-main">
+        <div class="rate-label">Estimated Reply Rate</div>
+        <div class="rate-number"><span id="rateNum">0</span>%</div>
+        <div class="rate-verdict" id="rateVerdict"></div>
+      </div>
+      <div class="score-bars" id="scoreBars"></div>
+    </div>
+
+    <!-- STRENGTHS / WEAKNESSES -->
+    <div class="sw-grid">
+      <div class="sw-card">
+        <div class="sw-title green"><span class="sw-dot green"></span>Strengths</div>
+        <ul class="sw-list" id="strengthsList"></ul>
+      </div>
+      <div class="sw-card">
+        <div class="sw-title red"><span class="sw-dot red"></span>Weaknesses</div>
+        <ul class="sw-list" id="weaknessesList"></ul>
+      </div>
+    </div>
+
+    <!-- REWRITE -->
+    <div class="rewrite-card">
+      <div class="rewrite-header">
+        <div class="label" style="margin:0"><span class="label-num" style="background:var(--lime-glow2);color:var(--lime)">✦</span> Rewritten Version</div>
+        <button class="copy-btn" id="copyBtn" onclick="copyRewrite()">
+          <span id="copyIcon">⎘</span> <span id="copyTxt">Copy</span>
+        </button>
+      </div>
+      <div class="rewrite-text" id="rewriteText"></div>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- HISTORY PANEL -->
+<div id="history-panel">
+  <div class="history-inner">
+    <div class="history-head">
+      <h2>Analysis History</h2>
+      <button class="close-btn" onclick="closeHistory()">✕ Close</button>
+    </div>
+    <div id="historyList"></div>
+  </div>
+</div>
+
+<footer>Built with zero cold-DM shame · DidTheyReply</footer>
+
+<script>
+// ─── STATE ───────────────────────────────────────────────────────────────────
+let selectedRec = '';
+let currentRewrite = '';
+
+// ─── RECIPIENT SELECT ────────────────────────────────────────────────────────
+function selectRec(btn) {
+  document.querySelectorAll('.rec-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  selectedRec = btn.dataset.val;
+}
+
+// ─── CHAR COUNT ──────────────────────────────────────────────────────────────
+document.getElementById('dmInput').addEventListener('input', function() {
+  document.getElementById('charCount').textContent = this.value.length;
+});
+
+// ─── AI-POWERED ANALYZE (calls /api/analyze) ─────────────────────────────────
+// The old fake scoring engine has been replaced with real Groq AI analysis.
+
+// ─── ANIMATE NUMBER ──────────────────────────────────────────────────────────
+function animateNum(el, target, duration = 1200) {
+  let start = 0;
+  const step = (ts) => {
+    if (!start) start = ts;
+    const p = Math.min((ts - start) / duration, 1);
+    const ease = 1 - Math.pow(1 - p, 3);
+    el.textContent = Math.round(ease * target);
+    if (p < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+// ─── MAIN ANALYZE ────────────────────────────────────────────────────────────
+async function analyze() {
+  const text = document.getElementById('dmInput').value.trim();
+  if (!text) { shake(document.getElementById('dmInput')); return; }
+  if (!selectedRec) { shake(document.querySelector('#recGrid')); return; }
+
+  // Show loading
+  document.getElementById('analyzeBtn').disabled = true;
+  document.getElementById('loadingWrap').classList.add('visible');
+  document.getElementById('results').classList.remove('visible');
+
+  // Cycle through loading messages for better UX
+  const loadingMsgs = [
+    'Analyzing your message...',
+    'Checking hook strength...',
+    'Evaluating personalization...',
+    'Assessing CTA clarity...',
+    'Writing a better version...'
+  ];
+  let msgIdx = 0;
+  const loadingEl = document.querySelector('.loading-text');
+  const msgInterval = setInterval(() => {
+    msgIdx = (msgIdx + 1) % loadingMsgs.length;
+    loadingEl.textContent = loadingMsgs[msgIdx];
+  }, 1400);
+
+  try {
+    const response = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dmText: text, recipient: selectedRec })
+    });
+
+    clearInterval(msgInterval);
+    loadingEl.textContent = 'Analyzing your message...';
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.error || `Server error ${response.status}`);
+    }
+
+    const data = await response.json();
+    const { replyRate, scores, strengths, weaknesses, rewrite } = data;
+
+    currentRewrite = rewrite;
+
+    renderResults(replyRate, scores, strengths, weaknesses, rewrite);
+    saveHistory(replyRate, text, selectedRec);
+
+    document.getElementById('loadingWrap').classList.remove('visible');
+    document.getElementById('analyzeBtn').disabled = false;
+    document.getElementById('results').classList.add('visible');
+
+    setTimeout(() => {
+      document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+
+  } catch (err) {
+    clearInterval(msgInterval);
+    loadingEl.textContent = 'Analyzing your message...';
+    document.getElementById('loadingWrap').classList.remove('visible');
+    document.getElementById('analyzeBtn').disabled = false;
+
+    // Show inline error without breaking the UI
+    const errBanner = document.createElement('div');
+    errBanner.style.cssText = `
+      background: rgba(255,68,68,0.08);
+      border: 1px solid rgba(255,68,68,0.3);
+      border-radius: 8px;
+      color: #ff6b6b;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.78rem;
+      padding: 14px 18px;
+      margin-top: 12px;
+      line-height: 1.5;
+    `;
+    errBanner.textContent = `⚠ Analysis failed: ${err.message}`;
+    const btn = document.getElementById('analyzeBtn');
+    // Remove previous error banners
+    document.querySelectorAll('.err-banner').forEach(e => e.remove());
+    errBanner.classList.add('err-banner');
+    btn.insertAdjacentElement('afterend', errBanner);
+    setTimeout(() => errBanner.remove(), 7000);
+  }
+}
+
+// ─── RENDER ──────────────────────────────────────────────────────────────────
+function renderResults(rate, scores, strengths, weaknesses, rewrite) {
+  // Normalize rate: API returns replyRate, keep backward compat
+  const r = typeof rate === 'number' ? rate : 0;
+
+  // Rate card class
+  const rateCard = document.getElementById('rateCard');
+  rateCard.className = 'rate-card ' + (r >= 35 ? 'excellent' : r >= 22 ? 'good' : r >= 12 ? 'average' : 'poor');
+
+  // Animate number
+  animateNum(document.getElementById('rateNum'), r);
+
+  // Verdict
+  const verdicts = {
+    excellent: '🔥 High chance — send it.',
+    good: '✓ Decent shot — small tweaks could push it further.',
+    average: '⚠ Below average — needs work before sending.',
+    poor: '✗ Low signal — likely gets ignored or deleted.'
+  };
+  const tier = r >= 35 ? 'excellent' : r >= 22 ? 'good' : r >= 12 ? 'average' : 'poor';
+  document.getElementById('rateVerdict').textContent = verdicts[tier];
+
+  // Score bars
+  const dims = [
+    { key: 'hook', label: 'Hook' },
+    { key: 'personalization', label: 'Personalization' },
+    { key: 'clarity', label: 'Clarity' },
+    { key: 'cta', label: 'CTA' },
+    { key: 'confidence', label: 'Confidence' },
+    { key: 'spamminess', label: 'Non-spammy' },
+  ];
+  const barsEl = document.getElementById('scoreBars');
+  barsEl.innerHTML = '';
+  dims.forEach(({ key, label }) => {
+    const val = Math.round(scores[key]);
+    const colorClass = val >= 65 ? '' : val >= 40 ? 'warn' : 'danger';
+    barsEl.innerHTML += `
+      <div class="score-row">
+        <div class="score-row-top">
+          <span class="score-name">${label}</span>
+          <span class="score-val">${val}</span>
+        </div>
+        <div class="bar-track"><div class="bar-fill ${colorClass}" data-width="${val}"></div></div>
+      </div>
+    `;
+  });
+
+  // Animate bars after DOM settles
+  setTimeout(() => {
+    document.querySelectorAll('.bar-fill').forEach(bar => {
+      bar.style.width = bar.dataset.width + '%';
+    });
+  }, 80);
+
+  // Strengths / Weaknesses
+  const sl = document.getElementById('strengthsList');
+  const wl = document.getElementById('weaknessesList');
+  sl.innerHTML = strengths.map(s => `<li>${s}</li>`).join('');
+  wl.innerHTML = weaknesses.map(w => `<li>${w}</li>`).join('');
+
+  // Rewrite
+  document.getElementById('rewriteText').textContent = rewrite;
+  document.getElementById('copyTxt').textContent = 'Copy';
+  document.getElementById('copyBtn').classList.remove('copied');
+}
+
+// ─── COPY ────────────────────────────────────────────────────────────────────
+function copyRewrite() {
+  navigator.clipboard.writeText(currentRewrite).then(() => {
+    const btn = document.getElementById('copyBtn');
+    const txt = document.getElementById('copyTxt');
+    const ico = document.getElementById('copyIcon');
+    btn.classList.add('copied');
+    ico.textContent = '✓';
+    txt.textContent = 'Copied!';
+    setTimeout(() => {
+      btn.classList.remove('copied');
+      ico.textContent = '⎘';
+      txt.textContent = 'Copy';
+    }, 2000);
+  });
+}
+
+// ─── HISTORY ─────────────────────────────────────────────────────────────────
+function saveHistory(rate, text, rec) {
+  try {
+    const history = JSON.parse(localStorage.getItem('dtr_history') || '[]');
+    history.unshift({
+      rate, text: text.slice(0, 120),
+      rec, ts: Date.now()
+    });
+    localStorage.setItem('dtr_history', JSON.stringify(history.slice(0, 20)));
+  } catch(e) {}
+}
+
+function openHistory() {
+  const panel = document.getElementById('history-panel');
+  panel.classList.add('visible');
+  renderHistory();
+}
+
+function closeHistory() {
+  document.getElementById('history-panel').classList.remove('visible');
+}
+
+function renderHistory() {
+  let history = [];
+  try { history = JSON.parse(localStorage.getItem('dtr_history') || '[]'); } catch(e) {}
+  const el = document.getElementById('historyList');
+  if (!history.length) {
+    el.innerHTML = '<div class="history-empty">No analyses yet. Send some cold DMs first.</div>';
+    return;
+  }
+  el.innerHTML = history.map((h, i) => {
+    const d = new Date(h.ts);
+    const ts = d.toLocaleDateString(undefined, { month:'short', day:'numeric' }) + ' · ' + d.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' });
+    return `
+      <div class="history-item" onclick="loadHistory(${i})">
+        <div class="history-item-top">
+          <span class="history-rate">${h.rate}% reply rate</span>
+          <span class="history-ts">${ts}</span>
+        </div>
+        <div class="history-snippet">${h.text}${h.text.length >= 120 ? '…' : ''}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function loadHistory(idx) {
+  try {
+    const history = JSON.parse(localStorage.getItem('dtr_history') || '[]');
+    const h = history[idx];
+    if (!h) return;
+    document.getElementById('dmInput').value = h.text;
+    document.getElementById('charCount').textContent = h.text.length;
+    document.querySelectorAll('.rec-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.val === h.rec);
+    });
+    selectedRec = h.rec;
+    closeHistory();
+    document.querySelector('.hero').scrollIntoView({ behavior: 'smooth' });
+  } catch(e) {}
+}
+
+// ─── SHAKE ANIMATION ─────────────────────────────────────────────────────────
+function shake(el) {
+  el.style.animation = 'none';
+  el.style.borderColor = 'var(--danger)';
+  el.animate([
+    { transform: 'translateX(-4px)' }, { transform: 'translateX(4px)' },
+    { transform: 'translateX(-4px)' }, { transform: 'translateX(0)' }
+  ], { duration: 300 });
+  setTimeout(() => { el.style.borderColor = ''; }, 1200);
+}
+
+// ─── CLOSE HISTORY ON OUTSIDE CLICK ─────────────────────────────────────────
+document.getElementById('history-panel').addEventListener('click', function(e) {
+  if (e.target === this) closeHistory();
+});
+</script>
+</body>
+</html>

@@ -111,6 +111,7 @@ Analyze this DM and return the JSON.`;
 
     let parsed;
     try {
+      console.log(cleaned);
       parsed = JSON.parse(cleaned);
     } catch (parseErr) {
       console.error('JSON parse failed. Raw content:', rawContent);
